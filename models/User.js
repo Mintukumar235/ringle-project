@@ -1,11 +1,12 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../db");
+const Region = require("./Region");
 
 const User = sequelize.define("User", {
   id: {
     type: DataTypes.INTEGER,
-    autoIncrement: true,
     primaryKey: true,
+    autoIncrement: true,
   },
   mobileNumber: {
     type: DataTypes.STRING,
@@ -23,10 +24,21 @@ const User = sequelize.define("User", {
   city: DataTypes.STRING,
   address: DataTypes.TEXT,
   pincode: DataTypes.STRING,
-  regionId: DataTypes.INTEGER,
+  regionId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 1, // Default India
+    references: {
+      model: "regions",
+      key: "id",
+    },
+  },
 }, {
   tableName: "users",
   timestamps: true,
 });
+
+// Define relationships
+User.belongsTo(Region, { foreignKey: "regionId", as: "region" });
 
 module.exports = User;

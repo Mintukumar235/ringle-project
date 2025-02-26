@@ -1,22 +1,21 @@
 const express = require("express");
-const sequelize = require("./db");
-const cors = require('cors')
-const User = require("./models/User");
+const cors = require("cors");
+const syncDatabase = require("./utils/syncDB"); 
 const authRoutes = require("./routes/authRoutes");
+const serviceRoutes = require("./routes/serviceRoutes");
+const userRoutes = require("./routes/userRoutes");
 require("dotenv").config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-// 2)Routes
-sequelize.sync({ alter: true }) 
-  .then(() => console.log("✅ Database synced successfully"))
-  .catch((err) => console.error("❌ Error syncing database:", err));
+syncDatabase();
 
 app.use("/auth", authRoutes);
+app.use("/services",serviceRoutes);
+app.use("/users",userRoutes);
 
-const PORT = 3000;
-app.listen(PORT,()=>{
-    console.log(`App running on port ${PORT}`);
-})
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
