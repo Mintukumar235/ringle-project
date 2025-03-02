@@ -5,87 +5,80 @@ const twilio = require("twilio");
 require("dotenv").config();
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-const OTP_STORE = {}; // Store OTP temporarily
 
 // ✅ Send OTP
 exports.sendOTP = async (req, res) => {
   const { mobileNumber } = req.body;
 
-  if (!mobileNumber) return res.status(400).json({ message: "Mobile number required" });
+  if (!mobileNumber) {
+    console.error("❌ Error: Mobile number required");
+    return res.status(400).json({ message: "Mobile number required" });
+  }
 
-  const otp = Math.floor(100000 + Math.random() * 900000); // 6-digit OTP
-  OTP_STORE[mobileNumber] = otp; // Store OTP temporarily
+  const otp = Math.floor(100000 + Math.random() * 900000); 
 
   try {
-    await client.messages.create({
+    console.log(`🚀 Sending OTP ${otp} to ${mobileNumber}...`);
+    
+    const message = await client.messages.create({
       body: `Your OTP is ${otp}`,
       from: process.env.TWILIO_PHONE_NUMBER,
       to: mobileNumber,
     });
 
-    res.json({ message: "OTP sent successfully" });
+    // Generate a token containing OTP (unverified)
+    const token = jwt.sign({ mobileNumber, otp, is_verified: false }, process.env.JWT_SECRET, { expiresIn: "5m" });
+
+    res.status(200).json({ message: "OTP sent successfully", token });
   } catch (error) {
-    res.status(500).json({ message: "Error sending OTP", error });
+    console.error("❌ Twilio Error:", error);
+    res.status(500).json({ message: "Error sending OTP", error: error.message });
   }
 };
 
 // ✅ Verify OTP & Generate Token
 exports.verifyOTP = async (req, res) => {
-  const { mobileNumber, otp } = req.body;
-
-  if (OTP_STORE[mobileNumber] !== parseInt(otp)) {
-    return res.status(400).json({ message: "Invalid OTP" });
-  }
-
-  delete OTP_STORE[mobileNumber]; // Remove OTP after verification
-
-  if (!process.env.JWT_SECRET) {
-    return res.status(500).json({ message: "JWT secret is missing" });
-  }
-
-  const token = jwt.sign({ mobileNumber }, process.env.JWT_SECRET, { expiresIn: "7d" });
-
-  let user = await User.findOne({ where: { mobileNumber } });
-
-  if (user) {
-    return res.json({ message: "User exists", token, newUser: false, user });
-  } else {
-    return res.json({ message: "New user, proceed to registration", token, newUser: true });
-  }
-};
-
-
-exports.registerUser = async (req, res) => {
-  const { token, firstName, lastName, email, password, device, deviceToken, latitude, longitude, city, address, pincode, regionId } = req.body;
+  const { token, enteredOtp } = req.body;
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const mobileNumber = decoded.mobileNumber;
-
-    let user = await User.findOne({ where: { mobileNumber } });
-
-    if (user) return res.status(400).json({ message: "User already exists" });
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    user = await User.create({
-      mobileNumber,
-      firstName,
-      lastName,
-      email,
-      password: hashedPassword,
-      device,
-      deviceToken,
-      latitude,
-      longitude,
-      city,
-      address,
-      pincode,
-      regionId,
+    if (decoded.otp !== parseInt(enteredOtp)) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+    const [user, created] = await User.findOrCreate({
+      where: { mobileNumber: decoded.mobileNumber },
+      defaults: { mobileNumber: decoded.mobileNumber }, // Only set mobile number for new users
     });
 
-    res.status(201).json({ message: "User registered successfully", user });
+    // Generate a new token with verification
+    const newToken = jwt.sign(
+      { userId: user.id, mobileNumber: user.mobileNumber, is_verified: true },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    return res.status(200).json({
+      message: created ? "New user created" : "User exists",
+      token: newToken,
+      user,
+    });
   } catch (error) {
-    res.status(500).json({ message: "Error creating user", error });
+    return res.status(401).json({ message: "Invalid or expired token", error });
+  }
+};
+
+exports.updateUser = async (req, res) => {
+  const { token, ...updatedFields } = req.body;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    let user = await User.findOne({ where: { id: decoded.userId } });
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+    await user.update(updatedFields);
+    
+    res.status(200).json({ message: "User updated successfully", user });
+  } catch (error) {
+    res.status(500).json({ message: "Error updating user", error });
   }
 };
